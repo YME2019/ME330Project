@@ -28,7 +28,14 @@
 #define GUN _LATA6 // Potentially OC1R instead
 #define STEPPER_SIGNAL OC2R
 #define SORTER OC3R
+#define BLINKING T1CONbits.TON
+#define LOADING T2CONbits.TON
 
+
+//Initialize Variables
+int LOADCOUNT=0;
+enum {INITIALIZE, ORIENT, LOAD, AIM, FIRE} state;
+enum {INITIAL_ORIENT, RELOAD, GO_LOAD, CENTER} ORIENT_STG;
 
 
 void configPinIO(void)
@@ -258,11 +265,55 @@ void driveCW (void)
     STEPPER_SIGNAL=2222;
     
 }
+void configT1 (void)
+{
+    BLINKING=1;
+    T1CONbits.TCS=0;
+    T1CONbits.TCKPS=0b10;
+    PR1=0x7A12; 
+    _T1IP = 4; // Select interrupt priority
+    _T1IE = 1; // Enable interrupt
+    _T1IF = 0; // Clear interrupt flag
+    BLINKING=0;
+    TMR1=0;
+}
+void _ISR_T1Interrupt(void)
+{
+    _T1IF = 0; // Clear interrupt flag
+    BLINKING=~BLINKING;
+}
+void configT2 (void)
+{
+    LOADING=1;
+    T2CONbits.TCS=0; 
+    T2CONbits.TCKPS=0b10; //1/64 prescale
+    PR2=0xF424; 
+    _T2IP = 3; // Select interrupt priority
+    _T2IE = 1; // Enable interrupt
+    _T2IF = 0; // Clear interrupt flag
+    LOADING=0;
+    TMR2=0;
+}
+void _ISR_T2Interrupt(void)
+{
+    
+    LOADCOUNT++;
+    _T2IF = 0; // Clear interrupt flag
+    if (LOADCOUNT>=15)
+    {
+        state=ORIENT;
+        ORIENT_STG=CENTER;
+        
+    }
+   
+}
+
 int main() {
     //Finite State Machine
         //Define State Variables
-        enum {INITIALIZE, ORIENT, LOAD_NAV, LOAD, AIM, FIRE} state;
+        
         state=INITIALIZE;
+        ORIENT_STG=INITIAL_ORIENT;
     //Switch Statement
        
         while(1)
@@ -278,6 +329,8 @@ int main() {
                 configPWM1();
                 configPWM2();
                 configPWM3();
+                configT1();
+                configT2();
                 LED=1;
                 __delay_us(100000)
                 LED=0;
@@ -303,28 +356,33 @@ int main() {
                 state=ORIENT;
                 break;
             case ORIENT:
-                LED=0;
-                __delay_us(100000);
-                driveFWD();
-                __delay_us(5000000)
-                driveBACK();
-                __delay_us(5000000)
-                driveSTOP();
-                __delay_us(5000000)
-                driveCCW();
-                __delay_us(5000000)
-                driveCW();
-                __delay_us(5000000)
-                driveSTOP();
-                while(1)
-                {   __delay_us(250000)
-                    LED=1;
-                    __delay_us(250000)
-                    LED=0; 
-                }
-                break;
-            case LOAD_NAV:
+                switch (ORIENT_STG)
+                {
+                    case INITIAL_ORIENT:
+                        driveCCW();
+                        while(1)
+                        {
+                            if (FRONT_IR>10000)
+                            {
+                                driveSTOP();
+                                __delay_us(50000)
+                                driveCW(); 
                                 break;
+                            }
+                        }
+                        break;
+                    case RELOAD:
+                        break;
+                    case GO_LOAD:
+                        driveBACK();
+                        break;
+                    case CENTER:
+                        break;
+                }
+                
+                
+                
+                break;
             case LOAD:
                 break;
             case AIM:
