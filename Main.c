@@ -33,7 +33,7 @@
 
 
 //Initialize Variables
-int LOADCOUNT=0;
+int LOADCOUNT=0, NAVCOUNT=0;
 enum {INITIALIZE, ORIENT, LOAD, AIM, FIRE} state;
 enum {INITIAL_ORIENT, RELOAD, GO_LOAD, CENTER} ORIENT_STG;
 
@@ -181,8 +181,8 @@ void configPWM2 (void)
     OC2CON2bits.OCTRIG = 0;     // Synchronizes with OC1 source instead of
                                 // triggering with the OC1 source
     OC2CON1bits.OCM = 0b110;    // Edge-aligned PWM mode
-    
-    
+//     _OC2IE=1;                  // Allow Interrupt
+//    _OC2IF=0;
     //-----------------------------------------------------------
     // RUN
 }
@@ -269,8 +269,8 @@ void configT1 (void)
 {
     BLINKING=1;
     T1CONbits.TCS=0;
-    T1CONbits.TCKPS=0b10;
-    PR1=0x7A12; 
+    T1CONbits.TCKPS=0b11; //0b10;
+    PR1=0xFFFF; //0x7A12;
     _T1IP = 4; // Select interrupt priority
     _T1IE = 1; // Enable interrupt
     _T1IF = 0; // Clear interrupt flag
@@ -280,7 +280,7 @@ void configT1 (void)
 void _ISR_T1Interrupt(void)
 {
     _T1IF = 0; // Clear interrupt flag
-    BLINKING=~BLINKING;
+    LED= ~LED;
 }
 void configT2 (void)
 {
@@ -307,6 +307,18 @@ void _ISR_T2Interrupt(void)
     }
    
 }
+void _ISR_OC2Interrupt(void)
+{
+    _OC2IF=0; // Clear the Interrupt Flag
+    LED=0;
+    NAVCOUNT++;
+    if (NAVCOUNT>=100)
+    {
+        driveSTOP();
+    }
+    
+    
+}
 
 int main() {
     //Finite State Machine
@@ -314,8 +326,7 @@ int main() {
         
         state=INITIALIZE;
         ORIENT_STG=INITIAL_ORIENT;
-    //Switch Statement
-       
+    //Switch Statement       
         while(1)
         {
             switch(state){
@@ -352,14 +363,17 @@ int main() {
                 LED=0;
                 __delay_us(100000)
                 LED=1;
-                __delay_us(5000000)
+                __delay_us(100)
                 state=ORIENT;
                 break;
             case ORIENT:
                 switch (ORIENT_STG)
                 {
+                    
                     case INITIAL_ORIENT:
                         driveCCW();
+                        BLINKING=1;
+
                         while(1)
                         {
                             if (FRONT_IR>10000)
