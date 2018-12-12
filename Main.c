@@ -31,6 +31,7 @@
 #define SORTER OC3R
 #define BLINKING T1CONbits.TON
 #define LOADING T2CONbits.TON
+#define VIBRATE _LATB9
 
 
 
@@ -42,7 +43,7 @@ enum {INITIAL_ORIENT, RELOAD, GO_LOAD, CENTER} ORIENT_STG;
 //void pinTEST(void)
 //{
 //    LED=1;
-//    __delay_us(1000000)
+//    __delay_us(100000)
 //    LED=0;
 //}
 void configPinIO(void)
@@ -288,15 +289,16 @@ void configT1 (void)
     T1CONbits.TCKPS=0b10; //0b10;
     PR1=0x7A12; //;
     _T1IP = 4; // Select interrupt priority
-    //_T1IE = 1; // Enable interrupt
+    _T1IE = 1; // Enable interrupt
     _T1IF = 0; // Clear interrupt flag
     BLINKING=0;
     TMR1=0;
 }
-void _ISR_T1Interrupt(void)
+void __attribute__((interrupt, no_auto_psv)) _T1Interrupt(void)
 {
     _T1IF = 0; // Clear interrupt flag
     LED= ~LED;
+    
 }
 void configT2 (void)
 {
@@ -304,22 +306,23 @@ void configT2 (void)
     T2CONbits.TCS=0; 
     T2CONbits.TCKPS=0b10; //1/64 prescale
     PR2=0xF424; 
-    _T2IP = 3; // Select interrupt priority
+    _T2IP = 6; // Select interrupt priority
     _T2IE = 1; // Enable interrupt
     _T2IF = 0; // Clear interrupt flag
     LOADING=0;
     TMR2=0;
 }
-void _ISR_T2Interrupt(void)
+void __attribute__((interrupt, no_auto_psv)) _T2Interrupt(void)
 {
     
     LOADCOUNT++;
     _T2IF = 0; // Clear interrupt flag
-    if (LOADCOUNT>=15)
+    if (LOADCOUNT=15)
     {
         state=ORIENT;
         ORIENT_STG=CENTER;
-        
+        LOADING=0;
+        //break;
     }
    
 }
@@ -328,7 +331,7 @@ void __attribute__((interrupt, no_auto_psv)) _OC2Interrupt(void)
     _OC2IF=0; // Clear the Interrupt Flag
     
     NAVCOUNT++;
-    if (NAVCOUNT>=1000&&ORIENT_STG==INITIAL_ORIENT)
+    if (NAVCOUNT>=750&&ORIENT_STG==INITIAL_ORIENT)
     {
         driveSTOP();
         __delay_ms(500)
@@ -347,8 +350,9 @@ void _ISR _OC1Interrupt(void)
 void __attribute__((interrupt, no_auto_psv)) _CNInterrupt(void)
 {
     _CNIF = 0; // Clear interrupt flag (IFS1 register)
-    driveSTOP();
     BLINKING=1;
+    LOADING=1;
+    state=LOAD;
 }
 int main() {
     //Finite State Machine
@@ -377,23 +381,23 @@ int main() {
                 LED=1;
                 __delay_us(100000)
                 LED=0;
-                __delay_us(100000)
+                __delay_us(10000)
                         LED=1;
-                __delay_us(100000)
+                __delay_us(10000)
                 LED=0;
-                __delay_us(100000)
+                __delay_us(10000)
                         LED=1;
-                __delay_us(100000)
+                __delay_us(10000)
                 LED=0;
-                __delay_us(100000)
+                __delay_us(10000)
                         LED=1;
-                __delay_us(100000)
+                __delay_us(10000)
                 LED=0;
-                __delay_us(100000)
+                __delay_us(10000)
                         LED=1;
-                __delay_us(100000)
+                __delay_us(10000)
                 LED=0;
-                __delay_us(100000)
+                __delay_us(10000)
                 LED=1;
                 __delay_us(100)
                         LED=0;
@@ -412,11 +416,11 @@ int main() {
                         driveCCW();
                         while(1)
                         {                            
-                            if (FRONT_IR>1500)
+                            if (FRONT_IR>1400)
                             {
                                 
                                 driveSTOP();
-                                __delay_ms(1000)
+                                __delay_ms(100)
                                 driveCW();
                                 _OC2IE=1;
                             }
@@ -427,10 +431,13 @@ int main() {
                         break;
                     case GO_LOAD:
                         _OC2IE=0;
-                        driveBACK();                        
-                        _CNIE = 1; // Enable CN interrupts (IEC1 register)
+                        driveBACK();  
+                        
+                        _CNIE = 1; // Enable CN interrupts (IEC1 register)                        
                         break;
                     case CENTER:
+                        VIBRATE=1;
+                        GUN=1;
                         break;
                 }
                 
@@ -438,7 +445,9 @@ int main() {
                 
                 break;
             case LOAD:
-                _CNIE = 0; // Enable CN interrupts (IEC1 register)
+                
+                //_CNIE = 0; // Enable CN interrupts (IEC1 register)
+                driveSTOP();
                 
                 break;
             case AIM:
