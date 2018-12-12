@@ -12,6 +12,7 @@
 #include <libpic30.h>
 #pragma config OSCIOFNC = OFF
 #pragma config SOSCSRC = DIG
+#pragma config ICS = PGx3
 
 //Define Various useful names and such
 #define BUTTONS_PUSHED _RA0 
@@ -32,18 +33,27 @@
 #define LOADING T2CONbits.TON
 
 
+
 //Initialize Variables
-int LOADCOUNT=0, NAVCOUNT=0;
+int LOADCOUNT=0, NAVCOUNT=0, NAVMARK=0, breaker=0;
 enum {INITIALIZE, ORIENT, LOAD, AIM, FIRE} state;
 enum {INITIAL_ORIENT, RELOAD, GO_LOAD, CENTER} ORIENT_STG;
 
-
+//void pinTEST(void)
+//{
+//    LED=1;
+//    __delay_us(1000000)
+//    LED=0;
+//}
 void configPinIO(void)
 {
     TRISA=0x2B;
     ANSA=0x0A;
     TRISB=0xF018;
     ANSB=0x3010;
+    LATA=0x0000;
+    LATB=0x0000;
+    
 }
 void configADC(void)
 {
@@ -110,7 +120,7 @@ void configPWM1(void)
     OC1CON2 = 0;
    
     // Set period and duty cycle
-    OC1R = 2000;                // Set Output Compare value to achieve
+    OC1R = 0;                // Set Output Compare value to achieve
                                 // desired duty cycle. This is the number
                                 // of timer counts when the OC should send
                                 // the PWM signal low. The duty cycle as a
@@ -139,7 +149,8 @@ void configPWM1(void)
                                 // triggering with the OC1 source
     OC1CON1bits.OCM = 0b110;    // Edge-aligned PWM mode
     
-    
+//    _OC1IE=1;
+//    _OC1IF=0;
     //-----------------------------------------------------------
     // RUN
 }
@@ -181,8 +192,13 @@ void configPWM2 (void)
     OC2CON2bits.OCTRIG = 0;     // Synchronizes with OC1 source instead of
                                 // triggering with the OC1 source
     OC2CON1bits.OCM = 0b110;    // Edge-aligned PWM mode
-//     _OC2IE=1;                  // Allow Interrupt
+     
+//    _OC2IE=1;
+//    IEC0bits.OC2IE=1;
+//    IFS0bits.OC2IF=0;
+//    _OC2IP=7;                  // Allow Interrupt
 //    _OC2IF=0;
+    
     //-----------------------------------------------------------
     // RUN
 }
@@ -196,7 +212,7 @@ void configPWM3 (void)
     OC3CON2 = 0;
    
     // Set period and duty cycle
-    OC3R = 2000;                // Set Output Compare value to achieve
+    OC3R = 0000;                // Set Output Compare value to achieve
                                 // desired duty cycle. This is the number
                                 // of timer counts when the OC should send
                                 // the PWM signal low. The duty cycle as a
@@ -269,10 +285,10 @@ void configT1 (void)
 {
     BLINKING=1;
     T1CONbits.TCS=0;
-    T1CONbits.TCKPS=0b11; //0b10;
-    PR1=0xFFFF; //0x7A12;
+    T1CONbits.TCKPS=0b10; //0b10;
+    PR1=0x7A12; //;
     _T1IP = 4; // Select interrupt priority
-    _T1IE = 1; // Enable interrupt
+    //_T1IE = 1; // Enable interrupt
     _T1IF = 0; // Clear interrupt flag
     BLINKING=0;
     TMR1=0;
@@ -307,19 +323,33 @@ void _ISR_T2Interrupt(void)
     }
    
 }
-void _ISR_OC2Interrupt(void)
+void __attribute__((interrupt, no_auto_psv)) _OC2Interrupt(void)
 {
     _OC2IF=0; // Clear the Interrupt Flag
-    LED=0;
+    
     NAVCOUNT++;
-    if (NAVCOUNT>=100)
+    if (NAVCOUNT>=1000&&ORIENT_STG==INITIAL_ORIENT)
     {
         driveSTOP();
+        __delay_ms(500)
+        ORIENT_STG=GO_LOAD;
+        NAVCOUNT=0;
+        breaker=1;
     }
     
     
 }
-
+void _ISR _OC1Interrupt(void)
+{
+    _OC1IF=0;
+    
+}
+void __attribute__((interrupt, no_auto_psv)) _CNInterrupt(void)
+{
+    _CNIF = 0; // Clear interrupt flag (IFS1 register)
+    driveSTOP();
+    BLINKING=1;
+}
 int main() {
     //Finite State Machine
         //Define State Variables
@@ -334,6 +364,7 @@ int main() {
                 configPinIO();
                 LED=1;
                 __delay_us(200000)
+//                pinTEST();
                 configADC();
                 LED=0;
                 __delay_us(200000)
@@ -342,6 +373,7 @@ int main() {
                 configPWM3();
                 configT1();
                 configT2();
+                // Configure CN interrupt
                 LED=1;
                 __delay_us(100000)
                 LED=0;
@@ -364,31 +396,39 @@ int main() {
                 __delay_us(100000)
                 LED=1;
                 __delay_us(100)
+                        LED=0;
+                __delay_us(100)
+                _CN2IE = 1; // Enable CN on pin 2 (CNEN1 register)
+                _CN2PUE = 0; // Disable pull-up resistor (CNPU1 register)
+                _CNIP = 7; // Set CN interrupt priority (IPC4 register)
+                _CNIF = 0; // Clear interrupt flag (IFS1 register)
                 state=ORIENT;
-                break;
+                //break;
             case ORIENT:
                 switch (ORIENT_STG)
-                {
+                {                 
                     
                     case INITIAL_ORIENT:
                         driveCCW();
-                        BLINKING=1;
-
                         while(1)
-                        {
-                            if (FRONT_IR>10000)
+                        {                            
+                            if (FRONT_IR>1500)
                             {
+                                
                                 driveSTOP();
-                                __delay_us(50000)
-                                driveCW(); 
-                                break;
+                                __delay_ms(1000)
+                                driveCW();
+                                _OC2IE=1;
                             }
+                            break;
                         }
                         break;
                     case RELOAD:
                         break;
                     case GO_LOAD:
-                        driveBACK();
+                        _OC2IE=0;
+                        driveBACK();                        
+                        _CNIE = 1; // Enable CN interrupts (IEC1 register)
                         break;
                     case CENTER:
                         break;
@@ -398,6 +438,8 @@ int main() {
                 
                 break;
             case LOAD:
+                _CNIE = 0; // Enable CN interrupts (IEC1 register)
+                
                 break;
             case AIM:
                 break;
